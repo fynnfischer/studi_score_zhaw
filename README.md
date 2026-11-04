@@ -1,5 +1,7 @@
 # StudiScore
 
+📄 **Doku:** <https://fynnfischer.github.io/studi_score_zhaw/>
+
 Wie studierendenfreundlich ist deine Region? PLZ eingeben, Radius + Prioritäten wählen → Score 0–100,
 Karte mit allen passenden Orten, Radar-Chart zur Score-Zusammensetzung.
 
