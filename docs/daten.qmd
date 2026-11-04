@@ -1,0 +1,123 @@
+---
+title: "Daten"
+---
+
+## Quellen
+
+| Quelle | Datei | Inhalt | Lizenz |
+|---|---|---|---|
+| OSM-Export DS.PM3 (Moodle SW 1) | `data/osm-output.zip` (52 MB entpackt) | 314'567 amenity-Nodes CH | ODbL |
+| swisstopo Amtliches Ortschaftenverzeichnis | `data/ortschaftenverzeichnis_plz_4326.csv.zip` | 5'717 Zeilen, PLZ4 + Ort + Kanton + WGS84-Punkt | OGD swisstopo |
+
+Kursformat OSM (flach, Werte als String, `addr:`-Präfix entfernt):
+
+```json
+{"nodes": [
+  {"amenity": "cinema", "name": "Kiwi", "postcode": "8400", "city": "Winterthur",
+   "id": "29455086", "lat": "47.4987786", "lon": "8.7261242"}
+]}
+```
+
+Tags ausser `id/lat/lon/amenity` sind optional → Importer nutzt überall `node.get(...)`.
+
+## Kategorien
+
+Definiert in `app/categories.py`. Auswahl aus der [EDA](eda.ipynb).
+
+| Key | Label | OSM `amenity` | Nodes CH |
+|---|---|---|---:|
+| `lernen` | Lernen | library, university, college | 1'420 |
+| `essen` | Essen & Kaffee | cafe, restaurant, fast_food, food_court, ice_cream | 22'477 |
+| `nachtleben` | Nachtleben | bar, pub, nightclub, biergarten | 3'444 |
+| `kultur` | Kultur & Freizeit | cinema, theatre, arts_centre, community_centre, events_venue | 1'530 |
+| `mobilitaet` | Mobilität | bicycle_rental, bus_station, car_sharing, ferry_terminal | 2'928 |
+| `alltag` | Alltag & Gesundheit | pharmacy, doctors, atm, bank, post_office, marketplace | 9'627 |
+| | **Total** | 27 amenity-Werte | **41'426** |
+
+Kategorien sind sehr ungleich gross (Essen 54 %, Lernen 3 %) → Normierung **pro Kategorie** nötig, siehe [Score](score.qmd).
+
+## Import-Pipeline
+
+```{mermaid}
+%%| fig-cap: "Abbildung 3: Import-Pipeline"
+flowchart TD
+  Z[osm-output.zip] -->|load_nodes| N[314'567 Nodes]
+  N -->|to_document: Filter amenity ∈ Kategorien,<br/>lat/lon → float, GeoJSON| A[(amenities<br/>41'426 Docs)]
+  A -->|create_index 2dsphere| A
+  O[swisstopo CSV] -->|1 Zeile pro PLZ<br/>max. Adressanteil| P1[3'190 PLZ]
+  A -->|Median POIs mit postcode = PLZ| P1
+  P1 -->|Zentrum| P2[$geoNear ≤ 5 km<br/>Gruppierung 500-m-Ringe]
+  P2 --> P[(plz<br/>counts je Radius)]
+  P -->|P99 je Radius × Kategorie| M[(meta.refs)]
+```
+
+Abbildung 3: `import_osm.py` filtert die Kurs-Nodes und schreibt sie als GeoJSON. `import_plz.py`
+bestimmt pro PLZ ein Zentrum, zählt die POIs für alle 10 Radien und leitet daraus die Referenzwerte ab.
+
+### Zentrum einer PLZ
+
+1. swisstopo-Punkt der Ortschaft (Zeile mit grösstem `Adressenanteil`).
+2. Falls ≥ 5 POIs mit `postcode == PLZ` existieren **und** deren Median < 3 km vom swisstopo-Punkt liegt
+   → Median der POIs als Zentrum (`center_source: "osm"`). Grund: POIs häufen sich im Ortskern,
+   der swisstopo-Punkt liegt bei grossen PLZ-Gebieten teils am Rand/im Grünen.
+3. Sonst swisstopo-Punkt (`center_source: "swisstopo"`).
+
+Resultat: 662 PLZ mit OSM-Zentrum, 2'528 mit swisstopo-Punkt.
+
+### Laufzeit
+
+| Schritt | Dauer (gemessen, MacBook, MongoDB 9.0 lokal) |
+|---|---|
+| `import_osm.py` | ~1 s |
+| `import_plz.py` (3'190 `$geoNear`-Aggregationen) | ~3 s |
+
+## Datenmodell MongoDB (`db = osm`)
+
+### `amenities`
+
+```json
+{
+  "_id": 29455086,
+  "name": "Kiwi",
+  "amenity": "cinema",
+  "category": "kultur",
+  "location": {"type": "Point", "coordinates": [8.7261242, 47.4987786]},
+  "street": "Neumarkt", "housenumber": "13", "postcode": "8400", "city": "Winterthur",
+  "opening_hours": "...", "website": "...", "wheelchair": "limited"
+}
+```
+
+| Index | Zweck |
+|---|---|
+| `location: 2dsphere` | `$geoWithin`, `$geoNear` |
+| `category` | Filter `/api/pois?categories=` |
+| `postcode` | Zentrum-Berechnung beim Import |
+
+GeoJSON-Reihenfolge ist **`[lon, lat]`** (nicht lat/lon wie bei Leaflet).
+
+### `plz`
+
+```json
+{
+  "_id": "8400", "name": "Winterthur", "gemeinde": "Winterthur", "canton": "ZH",
+  "lat": 47.4993, "lon": 8.7264, "center_source": "osm",
+  "counts": [
+    {"lernen": 10, "essen": 133, "nachtleben": 38, "kultur": 14, "mobilitaet": 4, "alltag": 78},
+    "... 10 Einträge, Index i ↔ Radius 0.5·(i+1) km"
+  ]
+}
+```
+
+### `meta`
+
+```json
+{"_id": "refs", "percentile": 99, "radii": [0.5, 1.0, "...", 5.0],
+ "refs": [{"lernen": 3.0, "essen": 70.3, "nachtleben": 16.0, "...": "..."}, "... 10 Einträge"]}
+```
+
+## Datenqualität / Limitierungen
+
+- OSM ist crowdsourced: Abdeckung in Städten deutlich besser als auf dem Land → Score misst auch Mapping-Aktivität.
+- Nur **Nodes**; als Way/Fläche gemappte Hochschulen (häufig bei `university`) fehlen im Kursexport.
+- `addr:postcode` fehlt bei ~60 % der Nodes → Umkreissuche statt PLZ-Filter (siehe EDA).
+- PLZ ≠ Gemeinde: 1 PLZ kann mehrere Gemeinden umfassen; wir nehmen die Ortschaft mit dem grössten Adressanteil.

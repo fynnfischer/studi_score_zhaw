@@ -1,0 +1,101 @@
+---
+title: "Architektur"
+---
+
+## Komponenten
+
+```{mermaid}
+%%| fig-cap: "Abbildung 1: Client-Server-Architektur von StudiScore"
+flowchart LR
+  subgraph Client[Browser]
+    H[index.html + style.css]
+    J[app.js · jQuery]
+    L[Leaflet]
+    C[Chart.js]
+  end
+  subgraph Server[Flask · server.py]
+    R[Routen /api/*]
+    S[scoring.py]
+  end
+  subgraph DB[MongoDB · db osm]
+    A[(amenities<br/>2dsphere)]
+    P[(plz)]
+    M[(meta)]
+  end
+  I[import_osm.py<br/>import_plz.py] --> A & P & M
+  J -- "Ajax (JSON)" --> R
+  R --> S
+  R -- pymongo --> A & P & M
+  J --> L & C
+```
+
+Abbildung 1: Der Browser lädt das statische Frontend aus `app/static/` und holt alle Daten per Ajax als
+JSON vom Flask-Server. Der Server liest aus MongoDB (Geo-Queries auf `amenities`) und berechnet den
+Score in `scoring.py`. Die Importer füllen die DB einmalig vor dem Start.
+
+| Schicht | Datei(en) | Aufgabe |
+|---|---|---|
+| Import | `import_osm.py`, `import_plz.py` | Rohdaten → MongoDB, Referenzwerte vorberechnen |
+| DB-Zugriff | `db.py` | `MongoClient`, Collections `amenities`, `plz`, `meta` |
+| Domäne | `categories.py`, `scoring.py` | Kategorien/Gewichte, Score-Formel (ohne DB, testbar) |
+| API | `server.py` | Routen, Validierung, JSON (immer `dict`) |
+| UI | `static/index.html`, `css/style.css`, `js/app.js` | Formular, Karte, Charts |
+
+## Ablauf „Score berechnen“
+
+```{mermaid}
+%%| fig-cap: "Abbildung 2: Sequenz eines Score-Requests"
+sequenceDiagram
+  participant B as Browser (app.js)
+  participant F as Flask
+  participant M as MongoDB
+  B->>F: GET /api/search?q=Winti (Autocomplete)
+  F->>M: plz.find({name: /^Winti/i})
+  B->>F: POST /api/score (plz, radius, w_*)
+  F->>M: plz.find_one({_id: "8400"})
+  F->>M: aggregate($geoWithin + $group category)
+  F->>F: scoring.compute() + Perzentil
+  F-->>B: {score, categories[], location, percentile}
+  B->>F: GET /api/pois?lat&lon&radius
+  F->>M: amenities.find($geoWithin)
+  F-->>B: {count, pois[]}
+  B->>B: Hero, KPIs, Radar, Karte, Liste rendern
+```
+
+Abbildung 2: Pro Berechnung zwei Requests. `/api/score` liefert nur Zahlen (klein, schnell),
+`/api/pois` die Punkte für die Karte (bis einige tausend Objekte bei 5 km in Zürich).
+
+## Ordnerstruktur
+
+```
+studi_score_app/
+├── app/
+│   ├── server.py          # Flask, Routen
+│   ├── db.py              # MongoClient
+│   ├── categories.py      # Kategorien, Fragen, Gewichte
+│   ├── scoring.py         # Score-Logik + Selbsttest
+│   ├── import_osm.py      # Importer OSM
+│   ├── import_plz.py      # Importer PLZ + Referenzen
+│   └── static/
+│       ├── index.html
+│       ├── css/style.css
+│       └── js/app.js
+├── data/                  # Rohdaten (gitignored)
+├── docs/                  # diese Website (Quarto)
+├── mongod.conf
+└── pyproject.toml         # flask, pymongo
+```
+
+`static/` liegt neben `server.py` → Flask liefert es ohne Konfiguration unter `/static/...` aus.
+Frontend und API laufen auf demselben Origin (`127.0.0.1:5000`) → keine CORS-Probleme.
+
+## Designentscheide
+
+| Entscheid | Grund |
+|---|---|
+| Statisches Frontend + JSON-API statt Templates | klare Trennung Frontend/Backend, wie in den Slides (`$.getJSON`) |
+| `POST` für `/api/score` | Formulardaten (`serialize()`), wie SW 10; restliche Endpunkte `GET` (idempotent, cachebar) |
+| Geo-Query in MongoDB statt Python | `2dsphere`-Index → ms statt Sekunden, kein Laden aller Nodes |
+| Score-Logik ohne DB-Abhängigkeit | einzeln testbar (`python app/scoring.py`) |
+| Referenzwerte beim Import | Perzentil über 3'190 PLZ × 10 Radien zur Laufzeit wäre zu teuer |
+| Fehler als JSON + HTTP-Status | 400 (Input), 404 (PLZ unbekannt), 503 (DB down) → Frontend zeigt Meldung |

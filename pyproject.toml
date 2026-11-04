@@ -1,0 +1,10 @@
+[project]
+name = "studi-score-app"
+version = "0.1.0"
+description = "StudiScore: Wie studierendenfreundlich ist deine Region? (DS.PM3, ZHAW)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3.0",
+    "pymongo>=4.6",
+]

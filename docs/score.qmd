@@ -1,0 +1,84 @@
+---
+title: "Score-Berechnung"
+---
+
+Implementiert in `app/scoring.py` (reine Funktionen, Selbsttest: `uv run python app/scoring.py`).
+
+## Formel
+
+Für Ort $p$, Radius $r$ und Kategorie $k$:
+
+| Schritt | Formel | Bedeutung |
+|---|---|---|
+| 1 Anzahl | $n_k$ = #POIs der Kategorie $k$ mit Distanz $\le r$ | MongoDB `$geoWithin` + `$group` |
+| 2 Referenz | $\mathrm{ref}_k(r)$ = P99 von $n_k$ über alle 3'190 CH-PLZ beim **gleichen** $r$ | beim Import vorberechnet |
+| 3 Teilscore | $s_k = 100 \cdot \min\left(1,\ \dfrac{\ln(1+n_k)}{\ln(1+\mathrm{ref}_k)}\right)$ | 0–100 |
+| 4 Gewicht | $w_k \in \{0.5,\ 1,\ 2\}$ | Antwort nicht wichtig / mittel / wichtig |
+| 5 Score | $S = \dfrac{\sum_k w_k\, s_k}{\sum_k w_k}$ | gewichteter Mittelwert, gerundet |
+| 6 Beitrag | $b_k = \dfrac{w_k\, s_k}{\sum_k w_k}$ | Punkte von $k$ am Score, $\sum_k b_k = S$ |
+| 7 Rang | $\lfloor 100 \cdot$ Anteil PLZ mit Score $< S \rfloor$ (gleiche Gewichte, gleicher $r$) | „x % der PLZ liegen tiefer“, abgerundet |
+
+## Begründung der Normierung
+
+| Problem | Lösung |
+|---|---|
+| Kategorien unterschiedlich gross (Essen 22'477 vs. Lernen 1'420 Nodes) | Referenz **pro Kategorie** |
+| Grösserer Radius ⇒ automatisch mehr Orte | Referenz **pro Radius** (0.5, 1.0, …, 5.0 km) |
+| Ausreisser (Zürich City) würden alles andere klein machen | P99 statt Maximum; ≥ Referenz ⇒ 100 |
+| 1. Bibliothek wichtiger als die 20. | $\ln(1+n)$ → abnehmender Grenznutzen |
+| Alles „nicht wichtig“ ⇒ Division durch 0 | Mindestgewicht 0.5 statt 0 |
+
+Kalibrierung: P95, P99 und P99.5 offline über alle PLZ × Radien verglichen (numpy, gleiche Logik wie Importer).
+Mit P95 bekamen alle grösseren Städte 100 (keine Unterscheidung Zürich ↔ Winterthur ↔ Uster).
+P99 trennt Städte sauber und ist über die Radien stabil:
+
+| PLZ | Ort | r = 0.5 | 1.5 | 3.0 | 5.0 km |
+|---|---|---:|---:|---:|---:|
+| 8001 | Zürich | 100 | 100 | 100 | 100 |
+| 3012 | Bern | 91 | 100 | 99 | 95 |
+| 6003 | Luzern | 98 | 96 | 88 | 83 |
+| 8400 | Winterthur | 96 | 92 | 82 | 76 |
+| 9000 | St. Gallen | 96 | 88 | 77 | 72 |
+| 8610 | Uster | 86 | 67 | 57 | 56 |
+| 3920 | Zermatt | 54 | 41 | 36 | 33 |
+| 7550 | Scuol | 35 | 35 | 30 | 34 |
+| 8484 | Weisslingen | 10 | 9 | 18 | 36 |
+
+: Score bei allen Antworten „mittel“ {.striped}
+
+## Referenzwerte $\mathrm{ref}_k(r)$ (P99)
+
+| r [km] | Lernen | Essen | Nachtleben | Kultur | Mobilität | Alltag |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.5 | 3.0 | 70.3 | 16.0 | 5.0 | 8.0 | 25.1 |
+| 1.0 | 11.0 | 157.0 | 31.3 | 13.2 | 21.1 | 49.6 |
+| 1.5 | 19.2 | 307.2 | 67.2 | 27.1 | 40.0 | 96.1 |
+| 2.0 | 30.0 | 480.7 | 94.2 | 42.0 | 64.0 | 136.6 |
+| 3.0 | 60.3 | 627.6 | 112.6 | 61.2 | 126.9 | 221.7 |
+| 5.0 | 105.0 | 1283.4 | 208.2 | 109.0 | 298.3 | 355.3 |
+
+Gespeichert in `osm.meta` (`_id: "refs"`), alle 10 Radien.
+
+## Beispiel: 8400 Winterthur, r = 1.5 km
+
+Antworten: Lernen + Nachtleben **wichtig**, Mobilität + Alltag **nicht wichtig**, Rest **mittel**.
+
+| Kategorie | $n_k$ | ref | $s_k$ | $w_k$ | $b_k$ |
+|---|---:|---:|---:|---:|---:|
+| Lernen | 12 | 19.2 | 85.3 | 2 | 24.4 |
+| Essen & Kaffee | 210 | 307.2 | 93.4 | 1 | 13.3 |
+| Nachtleben | 48 | 67.2 | 92.2 | 2 | 26.3 |
+| Kultur & Freizeit | 22 | 27.1 | 94.0 | 1 | 13.4 |
+| Mobilität | 26 | 40.0 | 88.8 | 0.5 | 6.3 |
+| Alltag & Gesundheit | 104 | 96.1 | 100.0 | 0.5 | 7.1 |
+| **Summe** | | | | **7** | **91** |
+
+Rechnung Lernen: $s = 100 \cdot \ln(13)/\ln(20.2) = 100 \cdot 2.565/3.006 = 85.3$.
+Score $= (2\cdot85.3 + 93.4 + 2\cdot92.2 + 94.0 + 0.5\cdot88.8 + 0.5\cdot100)/7 = 91$ → 99 % der PLZ liegen tiefer.
+
+## Limitierungen
+
+- Score misst **Angebot** (Anzahl), nicht Qualität, Preise oder Mieten.
+- Radius = Luftlinie, keine Reisezeit / ÖV-Anbindung.
+- Rang-Verteilung ist schief: Median aller PLZ = 9, ~10 % haben 0 (alpine Dörfer ohne POIs).
+- Abhängig von OSM-Mappingdichte (siehe [Daten](daten.qmd#datenqualität-limitierungen)).

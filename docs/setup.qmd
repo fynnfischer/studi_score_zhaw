@@ -1,0 +1,80 @@
+---
+title: "Setup & Betrieb"
+---
+
+## Voraussetzungen
+
+| Tool | Version | Install (macOS) |
+|---|---|---|
+| Python | ≥ 3.12 | via uv |
+| uv | aktuell | `brew install uv` |
+| MongoDB Community | 8.x | siehe unten |
+| Quarto (nur Doku) | ≥ 1.5 | quarto.org |
+
+## MongoDB
+
+```bash
+brew tap mongodb/brew
+brew trust mongodb/brew          # neuere Homebrew-Versionen verlangen das für Taps
+brew install mongodb-community
+brew services start mongodb-community   # als Service, Port 27017
+```
+
+Ohne Service: `mongod --config mongod.conf` (Vorlage im Repo, Pfade anpassen).
+Windows: Installer von mongodb.com, „Install as Service“ anhaken.
+
+Andere Adresse: Umgebungsvariablen `MONGO_HOST`, `MONGO_PORT` (siehe `app/db.py`).
+
+## App
+
+```bash
+git clone <repo> && cd studi_score_app
+uv sync                                   # flask, pymongo -> .venv
+
+# Kurs-Datensatz (Moodle SW 1) nach data/osm-output.zip kopieren
+uv run python app/import_osm.py           # optional Pfad: app/import_osm.py <datei.zip|.json>
+uv run python app/import_plz.py           # lädt swisstopo-CSV automatisch nach data/
+
+uv run python app/server.py               # http://127.0.0.1:5000/  (debug=True, nicht localhost -> AirPlay, s.u.)
+```
+
+Erwartete Ausgabe Import:
+
+```
+314,567 Nodes gelesen, 41,426 relevant
+OK: 41,426 Dokumente in osm.amenities
+OK: 3,190 PLZ (662 Zentrum aus OSM, 2,528 aus swisstopo)
+```
+
+## Checks
+
+```bash
+uv run python app/scoring.py                                   # Selbsttest -> "ok ..."
+curl http://127.0.0.1:5000/api/plz/8400
+curl -X POST http://127.0.0.1:5000/api/score -d plz=8400 -d radius=1.5
+mongosh osm --eval 'db.amenities.getIndexes()'                 # 2dsphere vorhanden?
+```
+
+## Troubleshooting
+
+| Symptom | Ursache | Fix |
+|---|---|---|
+| `503 Datenbank nicht erreichbar` | mongod läuft nicht | `brew services start mongodb-community` |
+| `osm.amenities ist leer` beim PLZ-Import | Reihenfolge | zuerst `import_osm.py` |
+| `503 Referenzwerte fehlen` | `import_plz.py` nicht gelaufen | Import ausführen |
+| Karte grau | keine Internetverbindung (Tiles/CDN) | Netz prüfen |
+| `403 Forbidden` auf `localhost:5000` | macOS AirPlay-Empfänger belegt Port 5000 (`ControlCenter`) | `http://127.0.0.1:5000/` nutzen, anderen Port wählen (`PORT=5001 uv run python app/server.py`) oder AirPlay-Empfänger deaktivieren |
+| `Refusing to load formula ... untrusted tap` | Homebrew-Tap-Sicherheit | `brew trust mongodb/brew` |
+
+Nach neuem Import Server neu starten (Referenzwerte werden beim ersten Request gecacht).
+
+## Doku (Quarto)
+
+```bash
+cd docs
+quarto preview                 # lokal mit Live-Reload
+quarto render                  # -> docs/_site/
+quarto publish gh-pages        # baut + pusht auf Branch gh-pages
+```
+
+GitHub: Settings → Pages → Source „Deploy from a branch“ → `gh-pages` / `root`.

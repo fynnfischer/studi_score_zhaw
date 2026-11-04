@@ -1,0 +1,133 @@
+---
+title: "API-Referenz"
+---
+
+Base-URL lokal: `http://127.0.0.1:5000`. Alle Antworten `Content-Type: application/json`,
+Root-Element immer ein Objekt (Flask `return dict`).
+
+## Übersicht
+
+| Methode | Route | Zweck |
+|---|---|---|
+| GET | `/` | Frontend (`static/index.html`) |
+| GET | `/api/categories` | Kategorien, Fragen, Farben, Radius-Range |
+| GET | `/api/search?q=` | Autocomplete PLZ / Ortsname |
+| GET | `/api/plz/<plz>` | Zentrum einer PLZ |
+| POST | `/api/score` | Score + Aufschlüsselung |
+| GET | `/api/pois` | POIs im Umkreis |
+
+## Fehler
+
+| Status | Wann | Body |
+|---|---|---|
+| 400 | ungültige PLZ / fehlende Parameter | `{"error": "Bitte eine 4-stellige PLZ eingeben"}` |
+| 404 | PLZ nicht im Ortschaftenverzeichnis | `{"error": "PLZ 9999 nicht gefunden"}` |
+| 503 | MongoDB nicht erreichbar (`PyMongoError`) | `{"error": "Datenbank nicht erreichbar (läuft mongod?)"}` |
+| 503 | `osm.meta` leer (PLZ-Import fehlt) | `{"error": "Referenzwerte fehlen -> app/import_plz.py ausführen"}` |
+
+## GET /api/categories
+
+```json
+{
+  "categories": [
+    {"key": "lernen", "label": "Lernen", "color": "#2a78d6",
+     "question": "Wie wichtig sind dir Bibliotheken und Hochschulen?",
+     "amenities": ["library", "university", "college"]},
+    "..."
+  ],
+  "radius": {"min": 0.5, "max": 5.0, "default": 1.5}
+}
+```
+
+## GET /api/search
+
+| Param | Typ | Beschreibung |
+|---|---|---|
+| `q` | string, ≥ 2 Zeichen | nur Ziffern → PLZ-Präfix, sonst Ortsname-Präfix (case-insensitive) |
+
+```bash
+curl "http://127.0.0.1:5000/api/search?q=Winter"
+```
+```json
+{"results": [{"plz": "8400", "name": "Winterthur", "canton": "ZH"}, "... max. 8"]}
+```
+
+## GET /api/plz/&lt;plz&gt;
+
+```json
+{"plz": "8400", "name": "Winterthur", "gemeinde": "Winterthur", "canton": "ZH",
+ "lat": 47.4993, "lon": 8.7264, "center_source": "osm"}
+```
+
+## POST /api/score
+
+Form-Daten (`application/x-www-form-urlencoded`, im Frontend `$("#score-form").serialize()`):
+
+| Feld | Typ | Default | Beschreibung |
+|---|---|---|---|
+| `plz` | 4 Ziffern | – | Pflicht |
+| `radius` | float km | 1.5 | wird auf 0.5er-Stufe in [0.5, 5] gerundet |
+| `w_lernen`, `w_essen`, `w_nachtleben`, `w_kultur`, `w_mobilitaet`, `w_alltag` | 0/1/2 | 1 | nicht wichtig / mittel / wichtig |
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/score \
+  -d plz=8400 -d radius=1.5 -d w_lernen=2 -d w_nachtleben=2 -d w_mobilitaet=0 -d w_alltag=0
+```
+```json
+{
+  "score": 91,
+  "percentile": 99,
+  "n_plz": 3190,
+  "ref_percentile": 99,
+  "radius": 1.5,
+  "area_km2": 7.07,
+  "total_pois": 422,
+  "location": {"plz": "8400", "name": "Winterthur", "canton": "ZH", "lat": 47.4993, "lon": 8.7264, "...": "..."},
+  "categories": [
+    {"key": "lernen", "label": "Lernen", "color": "#2a78d6",
+     "count": 12, "density": 1.7, "ref": 19.22, "subscore": 85.3,
+     "level": 2, "level_label": "wichtig", "weight": 2.0, "contribution": 24.4},
+    "... 6 Einträge"
+  ]
+}
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `score` | Gesamtscore 0–100 |
+| `percentile` | % aller CH-PLZ mit tieferem Score (gleiche Gewichte + Radius) |
+| `categories[].count` | Anzahl POIs im Radius |
+| `categories[].density` | POIs / km² (nur Info) |
+| `categories[].ref` | Referenz P99 für diesen Radius |
+| `categories[].subscore` | Teilscore $s_k$ |
+| `categories[].contribution` | Punkte am Gesamtscore $b_k$ |
+
+## GET /api/pois
+
+| Param | Typ | Pflicht | Beschreibung |
+|---|---|---|---|
+| `lat`, `lon` | float | ✔ | Zentrum |
+| `radius` | float km | | Default 1.5 |
+| `categories` | `key,key,...` | | Filter, z. B. `lernen,nachtleben` |
+
+```json
+{
+  "count": 422,
+  "pois": [
+    {"id": 29455086, "name": "Kiwi", "amenity": "cinema", "category": "kultur",
+     "lat": 47.4988, "lon": 8.7261, "dist": 62, "street": "Neumarkt 13",
+     "opening_hours": null, "website": null},
+    "... sortiert nach dist (m)"
+  ]
+}
+```
+
+## MongoDB-Queries dahinter
+
+```python
+# Umkreis (Score + POIs) – $centerSphere erwartet Radius in Radiant
+{"location": {"$geoWithin": {"$centerSphere": [[lon, lat], radius_km / 6378.1]}}}
+
+# Anzahl pro Kategorie
+[{"$match": geo_filter}, {"$group": {"_id": "$category", "n": {"$sum": 1}}}]
+```

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Daten (gross bzw. reproduzierbar, siehe README)
+data/*
+!data/README.md
+
+# Quarto
+docs/_site/
+docs/.quarto/
+**/*.quarto_ipynb
+
+# interne Notizen
+claude_stuff/
+
+.DS_Store

@@ -1,0 +1,51 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - index.qmd
+    - architektur.qmd
+    - daten.qmd
+    - score.qmd
+    - api.qmd
+    - frontend.qmd
+    - setup.qmd
+    - projekt.qmd
+    - eda.ipynb
+
+website:
+  title: "StudiScore"
+  description: "Wie studierendenfreundlich ist deine Region? – Technische Doku"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Übersicht
+      - href: architektur.qmd
+        text: Architektur
+      - href: daten.qmd
+        text: Daten
+      - href: score.qmd
+        text: Score
+      - href: api.qmd
+        text: API
+      - href: frontend.qmd
+        text: Frontend
+      - href: setup.qmd
+        text: Setup
+      - text: Mehr
+        menu:
+          - href: projekt.qmd
+            text: Projekt & Entscheide
+          - href: eda.ipynb
+            text: EDA OSM-Daten
+  page-footer:
+    center: "DS.PM3 · ZHAW · Team 3 · Daten © OpenStreetMap-Mitwirkende (ODbL), PLZ © swisstopo"
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    toc: true
+    code-copy: true
+    lang: de
+    number-sections: false

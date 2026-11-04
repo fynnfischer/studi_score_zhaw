@@ -1,0 +1,61 @@
+---
+title: "StudiScore"
+subtitle: "Wie studierendenfreundlich ist deine Region? – Technische Dokumentation"
+---
+
+Web-App (Client-Server) für DS.PM3. Input: PLZ, Radius, 6 Prioritäten. Output: Score 0–100,
+Karte mit allen passenden OSM-Orten, Aufschlüsselung des Scores.
+
+## Features
+
+| # | Feature | Umsetzung |
+|---|---|---|
+| F0 | Geführter Ablauf: PLZ → Prioritäten → Resultat (je eigene Seite, Auto-Scroll) | `#landing`, `#prefs`, `#dashboard`, jQuery `animate` |
+| F1 | PLZ- oder Ortssuche mit Vorschlägen | `GET /api/search`, HTML `<datalist>` |
+| F2 | Radius 0.5–5 km (Slider, 0.5er-Schritte) | `<input type="range">` |
+| F3 | 6 Fragen „nicht wichtig / mittel / wichtig“ | Radio-Buttons als Segmented Control |
+| F4 | StudiScore 0–100 + Rang vs. alle CH-PLZ | `POST /api/score`, [Score](score.qmd) |
+| F5 | Karte: Zentrum, Radius, alle POIs farbig, Tooltip bei Hover, Filter pro Kategorie | Leaflet, `GET /api/pois` |
+| F6 | Radar-Chart Teilscore vs. Priorität | Chart.js `type: 'radar'` |
+| F7 | Aufschlüsselung: Anzahl, Teilscore, Gewicht, Beitrag | jQuery DOM |
+| F8 | Nächste Orte (Distanz) | sortiert nach `dist` |
+| F9 | Im Resultat: PLZ, Radius, Prioritäten kompakt änderbar, Live-Neuberechnung | Prioritäts-Chips, jQuery `change` + Debounce |
+
+## Stack
+
+| Komponente | Technologie | Vorgabe DS.PM3 |
+|---|---|---|
+| DB | MongoDB 8, `pymongo` | ✔ |
+| Server | Flask 3 | ✔ |
+| Client | HTML5 / CSS (Flexbox) | ✔ |
+| JS | jQuery 3.6.1 | ✔ |
+| Karte | Leaflet 1.9.3, OSM-Tiles | ✔ |
+| Chart | Chart.js 3.7.1 | ✔ |
+
+Keine weiteren Libraries/Frameworks. Kein Docker (nicht Teil des Moduls).
+
+## Quickstart
+
+```bash
+uv sync
+uv run python app/import_osm.py
+uv run python app/import_plz.py
+uv run python app/server.py      # http://127.0.0.1:5000/
+```
+
+Details: [Setup](setup.qmd).
+
+## Seiten
+
+| Seite | Inhalt |
+|---|---|
+| [Architektur](architektur.qmd) | Komponenten, Ablauf eines Requests, Ordnerstruktur |
+| [Daten](daten.qmd) | Quellen, Import-Pipeline, MongoDB-Datenmodell, Indizes |
+| [Score](score.qmd) | Formel, Normierung, Gewichte, Beispiele |
+| [API](api.qmd) | Alle Endpunkte mit Parametern + Beispiel-JSON |
+| [Frontend](frontend.qmd) | Layout, JS-Ablauf, Karte, Chart |
+| [Setup](setup.qmd) | Installation, Betrieb, Troubleshooting |
+| [Projekt](projekt.qmd) | Vorgehen, Entscheide, offene Punkte, KI-Deklaration |
+| [EDA](eda.ipynb) | Explorative Analyse der OSM-Daten (Projektphase SW 4–5) |
+
+Team 3: Lewis Birrer, Fynn Fischer, Fiton Sallahaj · DS.PM3 · ZHAW · HS26

@@ -1,0 +1,53 @@
+---
+title: "Projekt & Entscheide"
+---
+
+## Auftrag (DS.PM3)
+
+Webbasierte Client-Server-Lösung mit Python auf Basis OSM-amenities.
+Pflicht: MongoDB · Flask · Browser · Chart.js · jQuery · Leaflet.
+Minimum: Server liest POIs aus DB → Client zeigt Karte + Chart. Mehr Features = bessere Note.
+
+## Zeitplan
+
+| SW | Plan (LNW1) | Stand |
+|---|---|---|
+| 4 | Idee, Kategorien, Score-Konzept | ✔ LNW1 08.10.2026 |
+| 5–6 | Datensatz prüfen (EDA), MongoDB-Import, Flask-API | ✔ |
+| 7–8 | Frontend: PLZ-Suche, Karte, Charts | ✔ |
+| 9–12 | Score verfeinern, Erweiterungen, Produktvideo | in Arbeit |
+| 13–14 | Abgabe + Schlusspräsentation | offen |
+
+Vorgehen: Scrum-light, 2-Wochen-Sprints, Jour Fixe pro Woche (Review / Status / Outlook).
+
+## Entscheid-Log
+
+| # | Entscheid | Alternativen | Grund |
+|---|---|---|---|
+| E1 | Kurs-Datensatz `osm-output.json` für die App | eigener Overpass-Export (EDA) | Vorgabe Modul, reproduzierbar für alle |
+| E2 | Umkreissuche (`2dsphere`) statt PLZ-Tag | `addr:postcode` filtern | Tag fehlt bei ~60 % der Nodes (EDA) |
+| E3 | PLZ-Zentren: swisstopo + OSM-Median | nur OSM-Median, OSM `place`-Nodes | swisstopo deckt alle 3'190 PLZ ab; OSM-Median trifft Ortskern besser |
+| E4 | Referenz P99 je Radius | P95 global, Maximum | P95 → alle Städte 100; Max → Zürich drückt alle |
+| E5 | Log-Normierung | linear + Kappung (EDA-Prototyp) | abnehmender Grenznutzen |
+| E6 | Gewichte 0.5 / 1 / 2 | 0 / 1 / 2, 1 / 2 / 3 | 0 schliesst Kategorie komplett aus; 4× Spanne gut spürbar |
+| E7 | Radius in 0.5-km-Stufen | stufenlos | nur so vorberechenbare Referenzen |
+| E8 | Kein Docker | docker-compose | nicht Teil des Moduls |
+| E9 | Doku als Quarto-Website | Word | Code + Doku im selben Repo, GitHub Pages |
+
+## Offene Punkte / Ausblick
+
+- Ways/Relations importieren (Hochschul-Campus sind oft Flächen, fehlen als Node).
+- Reisezeit (ÖV) statt Luftlinie.
+- Weitere Faktoren: Mietpreise, Sport (`leisure=*`), Coworking.
+- Vergleich zweier Orte nebeneinander.
+- Teilen-Link mit Parametern in der URL.
+
+## KI-Deklaration
+
+Gemäss ZHAW-Merkblatt „Verwendung von generativer KI in Arbeiten“.
+
+| KI-System | Verwendungszweck |
+|---|---|
+| Claude (Anthropic) via Claude Code | Code-Generierung (Importer, Flask-API, Frontend), Strukturierung und Entwurf dieser Dokumentation, Kalibrierung Score (Analyse-Skripte) |
+
+Alle generierten Inhalte wurden vom Team geprüft, getestet und angepasst.

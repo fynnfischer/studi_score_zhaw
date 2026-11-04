@@ -1,0 +1,120 @@
+---
+title: "Frontend"
+---
+
+Dateien: `app/static/index.html`, `css/style.css`, `js/app.js`. Kein Build-Schritt, Libraries per CDN.
+
+```html
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.1/dist/jquery.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+```
+
+Versionen fix gepinnt (wie in den Slides empfohlen, „latest“ kann brechen).
+
+## Layout
+
+Geführter Ablauf in 3 Schritten, jeder Schritt wird eingeblendet + per `animate({scrollTop})` angescrollt:
+
+| Schritt | Sektion | Inhalt | Weiter mit |
+|---|---|---|---|
+| 1 PLZ | `#landing` | grosse PLZ-Eingabe mittig (100 vh), Beispiel-PLZ | Submit → `GET /api/plz/<plz>` (prüft PLZ) |
+| 2 Prioritäten | `#prefs` | gleicher Stil: „Was ist dir wichtig?“, Umkreis-Slider, 6 Segmented Controls | „Resultat anzeigen“ → `POST /api/score` |
+| 3 Resultat | `#dashboard` | kompakte Leiste (PLZ, Radius, Prioritäts-Chips), Score, KPIs, Karte, Charts | Änderungen → Neuberechnung ohne Scroll |
+
+Fehler (z. B. PLZ unbekannt) bleiben auf der Startseite (`#landing-status`), Schritt 2/3 bleiben versteckt.
+
+Kompakte Leiste im Resultat: Prioritäts-Chip anklicken wechselt nicht wichtig → mittel → wichtig
+(Balken-Icon zeigt die Stufe). Chips und Mini-Slider setzen die Radio-Buttons/den Slider aus Schritt 2
+→ es gibt nur **eine** Quelle für die Formulardaten (`updateCompact()` hält beide Ansichten synchron).
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ StudiScore   [ PLZ oder Ort …  🔍 ]   ──●── 1.5 km             │
+│ Prioritäten (● Lernen ▂▄) (● Essen ▂▄) (● Nachtleben ▂▄▆) …    │
+│ 92/100             99 % der Schweizer PLZ liegen tiefer        │
+│ StudiScore für     [██████████████████████████|░░░░]           │
+│ 8400 Winterthur                                                │
+│ Orte im Umkreis │ Stärkste Kategorie │ Schwächste Kategorie    │
+│ Karte (Leaflet) + Legende │ Radar (Chart.js)                   │
+│ So entsteht der Score     │ In deiner Nähe                     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Abbildung 4: Wireframe Resultat (Schritt 3). Design angelehnt an ein Dashboard-Mockup (weisse Karte auf Lavendel,
+grosse Kennzahl, Verlaufsbalken, Segmented Controls, Liste mit Fortschrittsringen).
+Viel Weissraum: Sektionen 56–72 px Padding, Karte/Charts mit 72 px Abstand statt Trennlinien.
+
+| Bereich | HTML-ID | Inhalt |
+|---|---|---|
+| Schritt 1 | `#landing-form`, `#landing-input` | PLZ prüfen → `goToPrefs()` |
+| Schritt 2 | `#prefs`, `#radius`, `#questions`, `#show-result` | Fragen aus `/api/categories` generiert → `calculate(true)` |
+| Leiste | `#score-form`, `#radius-compact`, `#prio-chips` | Suchfeld `#plz-input` (sichtbar), `#plz` (hidden, wird gesendet), Lupe = Submit-Button; Enter sendet ab |
+| Hero | `#score-value`, `#bar-fill` | Score, Rang, Verlaufsbalken rot→gelb→grün |
+| KPIs | `#kpi-total`, `#kpi-best`, `#kpi-worst` | Anzahl Orte, beste/schwächste Kategorie |
+| Karte | `#map`, `#legend` | Leaflet + Filter-Chips |
+| Radar | `#radar` | Chart.js |
+| Aufschlüsselung | `#breakdown-rows` | Kopfzeile Kategorie/Prio/Score/Punkte, Zeile je Kategorie + Total |
+| Nähe | `#nearest` | 9 nächste benannte Orte (sichtbare Kategorien) |
+
+CSS: nur Flexbox, CSS-Variablen für Farben, 2 Breakpoints (1250 px: Spalten untereinander,
+760 px: Mobile-Layout).
+
+Formular-Trick: Radius-Slider und Radio-Buttons liegen ausserhalb von `<form>`, sind aber via
+`form="score-form"` zugeordnet → `$("#score-form").serialize()` nimmt sie trotzdem mit.
+
+## JS-Ablauf (`app.js`)
+
+```{mermaid}
+%%| fig-cap: "Abbildung 5: Ablauf im Browser"
+flowchart TD
+  R["$(document).ready"] --> C["$.getJSON /api/categories"]
+  C --> Q[buildQuestions + buildLegend]
+  C --> M[initMap: L.map + OSM-Tiles]
+  C --> K[initChart: new Chart radar]
+  S[submit / change Radius, Fragen] --> P[resolvePlz: Ziffern oder /api/search]
+  P --> X["$.post /api/score, serialize()"]
+  X --> RS[renderScore: Hero, KPIs, Radar, Tabelle]
+  X --> LP["$.getJSON /api/pois"]
+  LP --> MK[circleMarker je POI in layerGroup je Kategorie]
+  MK --> V[updateLayerVisibility + renderNearest]
+```
+
+| Funktion | Aufgabe |
+|---|---|
+| `buildQuestions()` | pro Kategorie 3 Radio-Buttons `name="w_<key>"`, Default „mittel“ |
+| `resolvePlz(text, cb)` | `8400` / `8400 Winterthur` direkt, sonst erster Treffer aus `/api/search` |
+| `calculate()` | `$.post(...).done(...).fail(...)`, Fehlermeldung aus `responseJSON.error` |
+| `renderScore(data)` | DOM-Updates mit jQuery, `radarChart.update()` |
+| `loadPois(data)` | Marker, Radius-Kreis (`L.circle`), Zentrum (`L.divIcon`), `fitBounds` |
+| `updateLayerVisibility()` | Kategorien ein/aus (Chip-Klick); „nicht wichtig“ startet ausgeblendet |
+
+Nach der ersten Berechnung lösen Änderungen an Slider/Fragen automatisch neu aus (250 ms Debounce).
+
+## Karte (Leaflet)
+
+- `L.map('map', {preferCanvas: true, scrollWheelZoom: false})` → Canvas statt SVG, flüssig auch bei > 3'000 Markern (Zürich, 5 km: 3'251).
+- Mausrad-Zoom erst nach Klick in die Karte (sonst zoomt man beim Seiten-Scrollen aus Versehen).
+- Tiles `tile.openstreetmap.org` (wie Slides), minimalistisch per CSS: `.leaflet-tile-pane { filter: grayscale(1) ...; opacity: .75 }`
+  → Basiskarte grau, POIs farbig im Vordergrund. Zoom-Buttons unten rechts, ohne Rahmen.
+- POI = `L.circleMarker`, Farbe = Kategorie.
+  - **Hover:** `bindTooltip` → Name, Typ, Distanz.
+  - **Klick:** `bindPopup` → zusätzlich Adresse, Öffnungszeiten, Website.
+- Radius-Kreis mit `interactive: false`, sonst fängt er im Canvas-Renderer die Maus ab (keine Tooltips).
+- 6 `L.layerGroup` → Filter ohne neuen Request.
+
+## Radar (Chart.js)
+
+| Dataset | Daten | Stil |
+|---|---|---|
+| Teilscore | `categories[].subscore` (0–100) | grün gefüllt, Punkte in Kategoriefarbe |
+| Deine Priorität | `weight × 50` → 25 / 50 / 100 | gestrichelt |
+
+Achse `r`: `min 0, max 100`. Interpretation: Teilscore-Fläche ausserhalb der Prioritäts-Linie = Ort
+erfüllt die Erwartung, innerhalb = Defizit.
+
+## Sicherheit
+
+OSM-Strings (Namen, Websites) werden vor dem Einfügen ins DOM mit `esc()` escaped
+(`$("<div>").text(x).html()`) → kein XSS über OSM-Daten.

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StudiScore</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <!-- Leaflet (Slides SW 11) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+
+  <!-- jQuery (SW 7/9), Leaflet (SW 11), Chart.js (SW 8) -->
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.1/dist/jquery.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+  <script src="/static/js/app.js"></script>
+</head>
+<body>
+<div class="shell">
+
+  <main class="content" id="top">
+
+    <!-- Startseite: grosse PLZ-Eingabe (sichtbar bis zur ersten Berechnung oben) -->
+    <section class="landing" id="landing">
+      <p class="landing-kicker">StudiScore</p>
+      <h1 class="landing-title">Wie studi-freundlich<br>ist dein Ort?</h1>
+      <p class="landing-sub">Postleitzahl eingeben – wir zählen Bibliotheken, Cafés, Bars, Kultur und mehr im Umkreis.</p>
+      <form id="landing-form" class="landing-search" autocomplete="off">
+        <input type="text" id="landing-input" placeholder="Postleitzahl eingeben" list="plz-suggestions" maxlength="40" autofocus>
+        <button type="submit" class="btn-dark">Los</button>
+      </form>
+      <div id="landing-status" class="status landing-status"></div>
+      <div class="examples">
+        <span class="muted">Beispiele:</span>
+        <a href="#" class="example" data-plz="8400 Winterthur">8400 Winterthur</a>
+        <a href="#" class="example" data-plz="8001 Zürich">8001 Zürich</a>
+        <a href="#" class="example" data-plz="3012 Bern">3012 Bern</a>
+        <a href="#" class="example" data-plz="1003 Lausanne">1003 Lausanne</a>
+      </div>
+    </section>
+
+    <!-- Schritt 2: Radius + Prioritäten (gleicher Stil wie die Startseite) -->
+    <section class="landing step hidden" id="prefs">
+      <p class="landing-kicker">Schritt 2 · Prioritäten</p>
+      <h1 class="landing-title">Was ist dir wichtig?</h1>
+      <p class="landing-sub" id="prefs-place"></p>
+
+      <div class="step-radius">
+        <label for="radius">Umkreis</label>
+        <input type="range" id="radius" name="radius" min="0.5" max="5" step="0.5" value="1.5" form="score-form">
+        <span id="radius-value" class="pill">1.5 km</span>
+      </div>
+      <div id="questions" class="questions"><!-- wird aus /api/categories erzeugt --></div>
+
+      <button type="button" id="show-result" class="btn-dark btn-big">Resultat anzeigen</button>
+    </section>
+
+    <!-- Schritt 3: Resultat, erst nach der ersten Berechnung sichtbar -->
+    <div class="dashboard hidden" id="dashboard">
+
+    <!-- Kompakte Leiste: PLZ, Radius, Prioritäten nachträglich ändern -->
+    <header class="topbar">
+      <h2 class="brand">StudiScore</h2>
+      <form id="score-form" class="search" autocomplete="off">
+        <!-- sichtbares Suchfeld (ohne name), die PLZ geht über das versteckte Feld an den Server -->
+        <input type="text" id="plz-input" placeholder="PLZ oder Ort" list="plz-suggestions" maxlength="40">
+        <input type="hidden" id="plz" name="plz">
+        <datalist id="plz-suggestions"></datalist>
+        <button type="submit" class="search-btn" title="Score berechnen"><svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg></button>
+      </form>
+      <div class="compact-radius">
+        <input type="range" id="radius-compact" min="0.5" max="5" step="0.5" value="1.5" aria-label="Radius">
+        <span id="radius-compact-value">1.5 km</span>
+      </div>
+      <span id="status" class="status"></span>
+    </header>
+    <div id="prio-chips" class="prio-chips"></div>
+
+    <!-- Hero: Score + Verlaufsbalken -->
+    <section class="hero">
+      <div class="hero-score">
+        <div class="big-number"><span id="score-value">–</span><span class="of-100">/100</span></div>
+        <div id="score-caption" class="muted"></div>
+      </div>
+      <div class="hero-bar">
+        <div id="percentile-text" class="bar-title"></div>
+        <div class="bar">
+          <div id="bar-fill" class="bar-fill" style="width: 0%"><span id="bar-label"></span></div>
+        </div>
+        <div class="bar-scale"><span>0</span><span>50</span><span>100</span></div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="kpis">
+      <div class="kpi">
+        <div class="kpi-title">Orte im Umkreis</div>
+        <div class="kpi-row"><span class="kpi-value" id="kpi-total">–</span><span class="kpi-note" id="kpi-total-note"></span></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-title">Stärkste Kategorie</div>
+        <div class="kpi-row"><span class="badge up">▲</span><span class="kpi-value" id="kpi-best">–</span><span class="kpi-note good" id="kpi-best-note"></span></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-title">Schwächste Kategorie</div>
+        <div class="kpi-row"><span class="badge down">▼</span><span class="kpi-value" id="kpi-worst">–</span><span class="kpi-note bad" id="kpi-worst-note"></span></div>
+      </div>
+    </section>
+
+    <!-- Karte + Radar -->
+    <section class="grid">
+      <div class="card wide" id="map-card">
+        <div class="section-head">
+          <h2>Karte</h2>
+          <div id="legend" class="legend"></div>
+        </div>
+        <div id="map"></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <h2>Score-Zusammensetzung</h2>
+        </div>
+        <div class="chart-box"><canvas id="radar"></canvas></div>
+      </div>
+    </section>
+
+    <!-- Aufschlüsselung + nächste Orte -->
+    <section class="grid">
+      <div class="card wide" id="breakdown">
+        <div class="section-head">
+          <h2>So entsteht der Score</h2>
+          <span class="muted small" id="formula">Score = Σ(Gewicht × Teilscore) / Σ Gewicht</span>
+        </div>
+        <div id="breakdown-rows" class="rows"><p class="muted">Noch keine Berechnung.</p></div>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <h2>In deiner Nähe</h2>
+          <span class="muted small">nächste Orte</span>
+        </div>
+        <ul id="nearest" class="nearest"><li class="muted">–</li></ul>
+      </div>
+    </section>
+
+    <footer class="footer">
+      DS.PM3 · ZHAW · Team 3 · Daten © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap-Mitwirkende</a> (ODbL),
+      PLZ © swisstopo
+    </footer>
+    </div>
+  </main>
+</div>
+</body>
+</html>
