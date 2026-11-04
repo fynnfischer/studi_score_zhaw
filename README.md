@@ -52,5 +52,7 @@ mongod.conf        MongoDB-Config-Vorlage
 ```bash
 cd docs
 quarto preview                 # lokal
-quarto publish gh-pages        # -> GitHub Pages (Branch gh-pages)
 ```
+
+GitHub Pages: automatisch per GitHub Action (`.github/workflows/publish.yml`) bei jedem Push auf `main`
+mit Änderungen in `docs/`. Einmalig: Settings → Pages → Source „GitHub Actions“.

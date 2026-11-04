@@ -74,7 +74,13 @@ Nach neuem Import Server neu starten (Referenzwerte werden beim ersten Request g
 cd docs
 quarto preview                 # lokal mit Live-Reload
 quarto render                  # -> docs/_site/
-quarto publish gh-pages        # baut + pusht auf Branch gh-pages
 ```
 
-GitHub: Settings → Pages → Source „Deploy from a branch“ → `gh-pages` / `root`.
+### GitHub Pages (automatisch)
+
+GitHub Action `.github/workflows/publish.yml`: bei jedem Push auf `main` mit Änderungen in `docs/`
+(oder manuell im Tab *Actions*) → Quarto installieren → `docs/` rendern → `docs/_site` als
+Pages-Artefakt hochladen → deployen (`actions/deploy-pages`). Kein `gh-pages`-Branch.
+`eda.ipynb` wird nicht ausgeführt (gespeicherte Outputs), daher kein Python im CI.
+
+Einmalig: Settings → Pages → Source **„GitHub Actions“**. Danach reicht `git push`.
